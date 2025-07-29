@@ -1,0 +1,4 @@
+
+
+pip install google-genai
+pip install google-cloud-storage
