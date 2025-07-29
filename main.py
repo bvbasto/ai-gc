@@ -12,29 +12,7 @@ import json
 import re
 import fitz  # PyMuPDF
 
-
-# https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
-#llmmodel="models/gemini-2.0-flash-001"
-llmmodel="models/gemini-2.5-pro"
-
-file_path = os.getcwd() + "/key.json"
-
-with open(file_path, 'r') as f:
-    jkey = json.load(f)
-
-gemini_api_key = jkey["gemini_api_key"]
-os.environ["GOOGLE_API_KEY"] = gemini_api_key
-
-project_id= jkey["project_id"]
-location= jkey["region"]
-llmmodel= jkey["model"]
-
-#client = genai.Client(project=project_id, location=location)
-
-bucket_name="fdld-poc2"
-object_name="ai1/rawdocs/Fidelidade_Auto_Liber3G_CG058_AU052_mar2024.pdf"
-logbbp = True
-
+#  Apps https://console.cloud.google.com/gen-app-builder/engines?inv=1&invt=Ab35yQ&project=bs-fdld-ai
 
 def bbp(o):
     global logbbp
@@ -72,6 +50,30 @@ def getGCP_Doc(bucket_name,object_name):
     page_count = doc.page_count
     doc.close()
     return doc_io,page_count
+
+def createBQTableWithList (listOfListOfItems,project_id,dataset_id,table_id):
+    client = bigquery.Client()
+    full_table_id = f"{project_id}.{dataset_id}.{table_id}"
+    
+    schema = [
+        bigquery.SchemaField("BlocoID", "INTEGER", mode="REQUIRED"),
+        bigquery.SchemaField("BlocoMetadata", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("BlocoContent", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("BlocoType", "STRING", mode="NULLABLE"),
+        bigquery.SchemaField("docPage_ini", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("docPage_end", "INTEGER", mode="NULLABLE"),
+        bigquery.SchemaField("ClausulaOuTopico", "STRING", mode="NULLABLE"),
+    ]
+    print(f"Creating table {full_table_id} if it doesn't exist...")
+    table = bigquery.Table(full_table_id, schema=schema)
+    table = client.create_table(table, exists_ok=True)
+    print(f"Table {table.project}.{table.dataset_id}.{table.table_id} is ready.")
+
+    ee = []
+    for i in listOfListOfItems:
+        errors = client.insert_rows_json(full_table_id, i['items'])
+        ee.append(errors)
+    return ee
 
 class myGeminiClient:
     __gemini_api_key = None
@@ -224,6 +226,27 @@ class myGeminiClient:
     
 
 
+# https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+#llmmodel="models/gemini-2.0-flash-001"
+llmmodel="models/gemini-2.5-pro"
+
+file_path = os.getcwd() + "/key.json"
+
+with open(file_path, 'r') as f:
+    jkey = json.load(f)
+
+gemini_api_key = jkey["gemini_api_key"]
+os.environ["GOOGLE_API_KEY"] = gemini_api_key
+
+project_id= jkey["project_id"]
+location= jkey["region"]
+llmmodel= jkey["model"]
+
+
+bucket_name="fdld-poc2"
+object_name="ai1/rawdocs/Fidelidade_Auto_Liber3G_CG058_AU052_mar2024.pdf"
+logbbp = True
+
 doc,pgs = getGCP_Doc(bucket_name,object_name)
 cacheInfo = "Este documento é sobre regras e clausulas referentes a seguro automovel " + object_name
 descDoc = "Este documento está dividido em capitulos e em clausulas que estão interligadas entre si, os blocos e os metadados devem refletir esta divisao para ajudar nas queries sobre vectores. Todo o texto tem que ser retornado"
@@ -233,67 +256,19 @@ gg = myGeminiClient(project_id,gemini_api_key,location,llmmodel)
 # cn = gg.createChunksPDFDoc_LoadDoc(doc,cacheInfo)
 # fr = gg.createChunksPDFDoc_GetTextChunks(cn,1,10,descDoc)
 # jl = gg.createChunksPDFDoc_CreateJSON(fr)
-# save_JsonFile(jl,"chunks.json")
+# save_JsonFile(resp_json[1],"chunks.json")
 cache_name,resp_json = gg.createChunksPDFDoc(doc,pgs,cacheInfo,descDoc)
-    
-    
-len(jl['items'])
-    
-    
-len(resp_json['items'])
-    
-resp_json[0]['items'][0]
-len(resp_json)
-
-resp_json[1][20]
-jl['items'][0]
-    
-    
-
-
-    
-    
-    
-    
-    
-    
-    
-    
-
-# 1. Construct a BigQuery client object.
-client = bigquery.Client()
-
-# 2. Set your project, dataset, and table IDs.
 dataset_id = 'rag_dataset'
 table_id = 'testFomCode'
-full_table_id = f"{project_id}.{dataset_id}.{table_id}"
-
-# 3. Define the table schema that matches your dictionary keys.
-# This step is for creating the table. You only need to do it once.
+ee = createBQTableWithList(resp_json,project_id,dataset_id,table_id)
 
 
-schema = [
-    bigquery.SchemaField("BlocoID", "INTEGER", mode="REQUIRED"),
-    bigquery.SchemaField("BlocoMetadata", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("BlocoContent", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("BlocoType", "STRING", mode="NULLABLE"),
-    bigquery.SchemaField("docPage_ini", "INTEGER", mode="NULLABLE"),
-    bigquery.SchemaField("docPage_end", "INTEGER", mode="NULLABLE"),
-    bigquery.SchemaField("ClausulaOuTopico", "STRING", mode="NULLABLE"),
-]
+resp_json[1]
 
-# 4. Create the table (if it doesn't already exist).
-# The `exists_ok=True` flag prevents an error if the table already exists.
-# You can comment this part out after the first run.
-print(f"Creating table {full_table_id} if it doesn't exist...")
-table = bigquery.Table(full_table_id, schema=schema)
-table = client.create_table(table, exists_ok=True)
-print(f"Table {table.project}.{table.dataset_id}.{table.table_id} is ready.")
+
 
 
 ee = []
 for i in resp_json:
     errors = client.insert_rows_json(full_table_id, i['items'])
     ee.append(errors)
-
-
